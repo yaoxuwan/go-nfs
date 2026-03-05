@@ -9,7 +9,12 @@ import (
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
-// onCommit - note this is a no-op, as we always push writes to the backing store.
+// Syncer is an optional interface that billy.Filesystem implementations can
+// provide to flush cached write data to persistent storage on NFS COMMIT.
+type Syncer interface {
+	Sync(path string) error
+}
+
 func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = wccDataErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
@@ -24,6 +29,13 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
 		return &NFSStatusError{NFSStatusServerFault, os.ErrPermission}
+	}
+
+	if syncer, ok := fs.(Syncer); ok {
+		fullPath := fs.Join(path...)
+		if err := syncer.Sync(fullPath); err != nil {
+			return &NFSStatusError{NFSStatusIO, err}
+		}
 	}
 
 	writer := bytes.NewBuffer([]byte{})

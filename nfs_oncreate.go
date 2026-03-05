@@ -39,9 +39,11 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Read(w.req.Body, &verf); err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
-		Log.Errorf("failing create to indicate lack of support for 'exclusive' mode.")
-		// TODO: support 'exclusive' mode.
-		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
+		_ = verf
+		// Treat exclusive mode as unchecked: create the file if it doesn't exist,
+		// or succeed silently if it already exists. This is safe for single-client
+		// localhost NFS where atomicity guarantees are not critical.
+		attrs = nil
 	} else {
 		// invalid
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
@@ -88,9 +90,11 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	fp := userHandle.ToHandle(fs, newFile)
 	changer := userHandle.Change(fs)
-	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-		Log.Errorf("Error applying attributes: %v\n", err)
-		return &NFSStatusError{NFSStatusIO, err}
+	if attrs != nil {
+		if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+			Log.Errorf("Error applying attributes: %v\n", err)
+			return &NFSStatusError{NFSStatusIO, err}
+		}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
